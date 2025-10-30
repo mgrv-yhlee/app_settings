@@ -2,25 +2,24 @@
 import UIKit
 import StoreKit
 
-@MainActor
 public class AppSettingsPlugin: NSObject, @preconcurrency FlutterPlugin, UIWindowSceneDelegate {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "com.spencerccf.app_settings/methods", binaryMessenger: registrar.messenger())
         let instance = AppSettingsPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
-    
+
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch(call.method) {
         case "openSettings":
-            handleOpenSettings(call: call, result: result)
-            break
+            DispatchQueue.main.async {
+                self.handleOpenSettings(call: call, result: result)
+            }
         default:
             result(FlutterMethodNotImplemented)
-            break
         }
     }
-    
+
     /// Handle the 'openSettings' method call.
     private func handleOpenSettings(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as! Dictionary<String, Any?>
@@ -39,15 +38,18 @@ public class AppSettingsPlugin: NSObject, @preconcurrency FlutterPlugin, UIWindo
             break
         case "subscriptions":
             if #available(iOS 15.0, *) {
-                Task {
-                    let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-                    
-                    if(windowScene != nil) {
-                        await openSubscriptionSettings(windowScene!)
-                    } else {
-                        openSettings(settingsUrl: UIApplication.openSettingsURLString)
+                Task { @MainActor [weak self] in
+                    guard let self = self else {
+                        result(FlutterError(code: "app_settings", message: "Plugin deallocated", details: nil))
+                        return
                     }
-                    
+
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        await self.openSubscriptionSettings(windowScene)
+                    } else {
+                        self.openSettings(settingsUrl: UIApplication.openSettingsURLString)
+                    }
+
                     result(nil)
                 }
             } else {
@@ -63,18 +65,21 @@ public class AppSettingsPlugin: NSObject, @preconcurrency FlutterPlugin, UIWindo
             break
         }
     }
-    
+
     private func openSettings(settingsUrl: String) {
         guard let url = URL(string: settingsUrl) else {
             return
         }
-        
-        if (UIApplication.shared.canOpenURL(url)) {
-            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+
+        DispatchQueue.main.async {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
         }
     }
 
     @available(iOS 15.0.0, *)
+    @MainActor
     private func openSubscriptionSettings(_ windowScene: UIWindowScene) async {
         do {
             try await AppStore.showManageSubscriptions(in: windowScene)
